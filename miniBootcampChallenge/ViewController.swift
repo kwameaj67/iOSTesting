@@ -21,12 +21,35 @@ class ViewController: UICollectionViewController {
         super.viewDidLoad()
         title = Constants.title
     }
-
-
+    
+    
 }
 
 
 // TODO: 1.- Implement a function that allows the app downloading the images without freezing the UI or causing it to work unexpected way
+func downloadImage(imageURL: URL, completion: @escaping (Data?,Error?) -> Void){
+    let session = URLSession.init(configuration: URLSessionConfiguration.default)
+    let task = session.downloadTask(with: imageURL) { data, response, error in
+        if let error = error {
+            completion(nil,error)
+            return
+        }
+        
+        guard let data = data else {
+            return
+        }
+        
+        do {
+            let photo = try Data(contentsOf: data)
+            completion(photo,nil)
+            print("Donwload done")
+        }
+        catch let error{
+            completion(nil,error)
+        }
+    }
+    task.resume()
+}
 
 // TODO: 2.- Implement a function that allows to fill the collection view only when all photos have been downloaded, adding an animation for waiting the completion of the task.
 
@@ -40,12 +63,32 @@ extension ViewController {
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: Constants.cellID, for: indexPath) as? ImageCell else { return UICollectionViewCell() }
         
-        let url = urls[indexPath.row]
-        let data = try? Data(contentsOf: url)
-        let image = UIImage(data: data!)
-        cell.display(image)
+        // placeholder image
+        cell.imageView.image = UIImage(named: "placeholder")?.withRenderingMode(.alwaysOriginal)
         
+        let url = urls[indexPath.row]
+        
+        // download remote image
+        downloadImage(imageURL: url) { data, error in
+            // get UIImage from data object
+            let photo = self.getImageFromData(data: data)
+            
+            // update ui(photo) on main thread
+            DispatchQueue.main.async {
+                cell.display(photo)
+            }
+            
+        }
         return cell
+    }
+    
+    // unwrap data for image
+    func getImageFromData(data: Data?) -> UIImage? {
+        if let data = data {
+            return UIImage(data: data)
+        }
+        // incase data is nil, use placeholder image regardless
+        return UIImage(named: "placeholder")?.withRenderingMode(.alwaysOriginal)
     }
 }
 
