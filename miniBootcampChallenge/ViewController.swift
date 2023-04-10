@@ -27,7 +27,7 @@ class ViewController: UICollectionViewController {
         title = Constants.title
         
         // uncomment this function below to fill the collection view only when all photos have been downloaded
-        downloadAllData()
+        //downloadAllData()
     }
 }
 
@@ -157,7 +157,8 @@ extension ViewController {
         if isDownloadAllData {
             let data = photos[indexPath.row]
             DispatchQueue.main.async {
-                cell.imageView.image = UIImage(data: data)
+                let image = UIImage(data: data)
+                cell.display(image)
             }
             return cell
         }
