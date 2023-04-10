@@ -90,6 +90,8 @@ extension UIImageView {
 // MARK: ViewController (downloadAllData) -
 extension ViewController {
     func downloadAllData(){
+        
+        // notifies collectionView if we downloading all data
         isDownloadAllData = true
         
         // parallel async downloading of images.  since task is async, any image to download first would be populated into the collectionView
@@ -118,8 +120,6 @@ extension ViewController {
     }
     
     func downloadAllImages(imageURL: URL, completion: @escaping (Data?, Error?) -> Void){
-        let cache = NSCache<NSString, NSData>()
-        
         let session = URLSession.init(configuration: URLSessionConfiguration.default)
         let task = session.downloadTask(with: imageURL) { data, response, error in
             if let error = error {
