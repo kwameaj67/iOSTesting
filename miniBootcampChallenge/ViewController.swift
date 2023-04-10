@@ -15,71 +15,65 @@ class ViewController: UICollectionViewController {
         static var cellSize: CGFloat?
     }
     
-    private lazy var urls: [URL] = URLProvider.urls
+    private lazy var urls = URLProvider.urls
+    
+    // new properties added
+    private lazy var photos = [Data]()
+    var isDownloadAllData = false
+    let dispatchGroup = DispatchGroup()
     
     override func viewDidLoad() {
         super.viewDidLoad()
         title = Constants.title
+        
+        // uncomment this function below to fill the collection view only when all photos have been downloaded
+        downloadAllData()
     }
-    
-    
 }
-
 
 // TODO: 1.- Implement a function that allows the app downloading the images without freezing the UI or causing it to work unexpected way
-func downloadImage(imageURL: URL, completion: @escaping (Data?,Error?) -> Void){
-    let session = URLSession.init(configuration: URLSessionConfiguration.default)
-    let task = session.downloadTask(with: imageURL) { data, response, error in
-        if let error = error {
-            completion(nil,error)
-            return
-        }
+// MARK: UIImageView (downloadImage) -
+extension UIImageView {
+    func downloadImage(imageURL: URL){
+        let cache = NSCache<NSString, NSData>()
         
-        guard let data = data else {
-            return
-        }
+        let session = URLSession.init(configuration: URLSessionConfiguration.default)
         
-        do {
-            let photo = try Data(contentsOf: data)
-            completion(photo,nil)
-            print("Donwload done")
-        }
-        catch let error{
-            completion(nil,error)
-        }
-    }
-    task.resume()
-}
-
-// TODO: 2.- Implement a function that allows to fill the collection view only when all photos have been downloaded, adding an animation for waiting the completion of the task.
-
-
-// MARK: - UICollectionView DataSource, Delegate
-extension ViewController {
-    override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        urls.count
-    }
-    
-    override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: Constants.cellID, for: indexPath) as? ImageCell else { return UICollectionViewCell() }
-        
-        // placeholder image
-        cell.imageView.image = UIImage(named: "placeholder")?.withRenderingMode(.alwaysOriginal)
-        
-        let url = urls[indexPath.row]
-        
-        // download remote image
-        downloadImage(imageURL: url) { data, error in
-            // get UIImage from data object
-            let photo = self.getImageFromData(data: data)
-            
-            // update ui(photo) on main thread
-            DispatchQueue.main.async {
-                cell.display(photo)
+        let task = session.downloadTask(with: imageURL) { data, response, error in
+            if let cachedData = cache.object(forKey: imageURL.absoluteString as NSString){ // check the cache
+                print("using cached images \(cachedData.count)")
+                
+                let image = self.getImageFromData(data: cachedData as Data)
+                DispatchQueue.main.async() { [weak self] in
+                    self?.image = image
+                }
             }
+            else {
+                if let error = error {
+                    print("\(error.localizedDescription)")
+                    return
+                }
+                
+                guard let data = data else {
+                    return
+                }
+                
+                do {
+                    let photoURL = try Data(contentsOf: data)
+                    cache.setObject(photoURL as NSData, forKey: imageURL.absoluteString as NSString)
             
+                    let image = self.getImageFromData(data: photoURL)
+                    DispatchQueue.main.async() { [weak self] in
+                        self?.image = image
+                    }
+                    print("\(photoURL.count) Donwload done")
+                }
+                catch let error{
+                    print("\(error.localizedDescription)")
+                }
+            }
         }
-        return cell
+        task.resume()
     }
     
     // unwrap data for image
@@ -90,6 +84,94 @@ extension ViewController {
         // incase data is nil, use placeholder image regardless
         return UIImage(named: "placeholder")?.withRenderingMode(.alwaysOriginal)
     }
+}
+
+// TODO: 2.- Implement a function that allows to fill the collection view only when all photos have been downloaded, adding an animation for waiting the completion of the task.
+// MARK: ViewController (downloadAllData) -
+extension ViewController {
+    func downloadAllData(){
+        isDownloadAllData = true
+        
+        // parallel async downloading of images.  since task is async, any image to download first would be populated into the collectionView
+        for url in urls {
+            self.dispatchGroup.enter()
+            downloadAllImages(imageURL: url) { data, error in
+                self.dispatchGroup.leave()
+                
+                if let err = error {
+                    print("\(err.localizedDescription)")
+                }
+                guard let data = data else { return }
+                
+                DispatchQueue.main.async {
+                    self.photos.append(data) // populate downloaded image
+                }
+            }
+        }
+        
+        self.dispatchGroup.notify(queue: .main){
+            //All images has been downloaded here
+            DispatchQueue.main.async {
+                self.collectionView.reloadData()
+            }
+        }
+    }
+    
+    func downloadAllImages(imageURL: URL, completion: @escaping (Data?, Error?) -> Void){
+        let cache = NSCache<NSString, NSData>()
+        
+        let session = URLSession.init(configuration: URLSessionConfiguration.default)
+        let task = session.downloadTask(with: imageURL) { data, response, error in
+            if let error = error {
+                print("\(error.localizedDescription)")
+                return
+            }
+            
+            guard let data = data else {
+                return
+            }
+            
+            do {
+                let photoURL = try Data(contentsOf: data)
+                completion(photoURL,nil)
+                print("\(photoURL.count) downloading done")
+            }
+            catch let error{
+                print("\(error.localizedDescription)")
+            }
+        }
+        task.resume()
+    }
+}
+
+
+// MARK: - UICollectionView DataSource, Delegate
+extension ViewController {
+    override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return isDownloadAllData ? photos.count :  urls.count
+    }
+    
+    override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: Constants.cellID, for: indexPath) as? ImageCell else { return UICollectionViewCell() }
+        
+        if isDownloadAllData {
+            let data = photos[indexPath.row]
+            DispatchQueue.main.async {
+                cell.imageView.image = UIImage(data: data)
+            }
+            return cell
+        }
+        else {
+            // placeholder image
+            cell.imageView.image = UIImage(named: "placeholder")?.withRenderingMode(.alwaysOriginal)
+            let url = urls[indexPath.row]
+            cell.imageView.downloadImage(imageURL: url)
+            return cell
+        }
+        
+    }
+    
+    
 }
 
 
